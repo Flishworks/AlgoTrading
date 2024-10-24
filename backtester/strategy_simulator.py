@@ -92,6 +92,28 @@ class percentage_from_mean(strategy_base):
             trade = -1 * percent_of_limit * reserve * self.adjust
         return trade
 
+class percentage_from_mean_simple(strategy_base):
+    def __init__(self, beta = 0.2, thresh_percent = .01, trade_percent = 10, trade_amount = 10):
+        self.avg = None
+        self.beta = beta
+        self.thresh_percent = thresh_percent
+        self.trade_percent = trade_percent
+        self.trade_amount = trade_amount
+        
+    def __call__(self, new, reserve, invested):
+        if self.avg is None:
+            self.avg = new
+        else:
+            self.avg = exponential_moving_average(new, self.avg, self.beta)
+        percent_swing = (new - self.avg) / (self.avg)
+        if np.abs(percent_swing) < self.thresh_percent:
+            return 0
+        if percent_swing > 0:
+            trade = -1 * (self.trade_percent * invested + self.trade_amount)
+        else:
+            trade = self.trade_percent * reserve + self.trade_amount
+        return trade
+    
 class slow_fast_avg(strategy_base):
     def __init__(self, avg_start = 0, beta_slow = 0.05, beta_fast = 0.3, trade_amount = 1):
         self.avg_slow = avg_start
@@ -115,6 +137,31 @@ class slow_fast_avg(strategy_base):
             return self.trade_amount
         return 0
 
+class inverse_slow_fast_avg(strategy_base):
+    def __init__(self, avg_start = 0, beta_slow = 0.05, beta_fast = 0.3, trade_amount = 1):
+        self.avg_slow = avg_start
+        self.avg_fast = avg_start
+        self.avg_slow_ot = []
+        self.avg_fast_ot = []
+        self.beta_slow = beta_slow
+        self.beta_fast = beta_fast
+        self.trade_amount = trade_amount
+        
+    def __call__(self, new, reserve, invested):
+        self.avg_slow = exponential_moving_average(new, self.avg_slow, self.beta_slow)
+        self.avg_fast = exponential_moving_average(new, self.avg_fast, self.beta_fast)
+        self.avg_slow_ot.append(self.avg_slow)
+        self.avg_fast_ot.append(self.avg_fast)
+        if (new > self.avg_slow) and (new < self.avg_fast):
+            #buy
+            return self.trade_amount
+            
+        if (new < self.avg_slow) and (new > self.avg_fast):
+            #sell
+            return -1*self.trade_amount
+        
+        return 0
+    
 class opportunistic(strategy_base):
     def __init__(self, avg_start = 0, beta = 0.1, thresh_percent = .02, trade_amount = 1):
         self.avg = avg_start
@@ -143,6 +190,24 @@ class momentum(strategy_base):
         
     def __call__(self, new, reserve, invested):
         if (new > self.last):
+            #buy
+            self.momentum += self.trade_amount
+        if (new < self.last):
+            #sell
+            self.momentum -= self.trade_amount
+        self.last = new
+        self.momentum = np.clip(self.momentum, -self.trade_cap, self.trade_cap)
+        return self.momentum
+
+class inverse_momentum(strategy_base):
+    def __init__(self, trade_amount = .1, trade_cap = 1):
+        self.trade_amount = trade_amount
+        self.momentum = 0
+        self.last = 0
+        self.trade_cap = trade_cap
+        
+    def __call__(self, new, reserve, invested):
+        if (new > self.last):
             #sell
             self.momentum -= self.trade_amount
         if (new < self.last):
@@ -151,7 +216,6 @@ class momentum(strategy_base):
         self.last = new
         self.momentum = np.clip(self.momentum, -self.trade_cap, self.trade_cap)
         return self.momentum
-
 
 class avg_derivitive(strategy_base):
     def __init__(self, avg_start = 0, beta = 0.1):
@@ -171,11 +235,194 @@ class avg_derivitive(strategy_base):
         else:
             #buy
             return mean_derivitive_percent * reserve
+    
+class copy_last(strategy_base):
+    #trades based on the last diff (if it was positive, buy, if it was negative, sell)
+    def __init__(self, amount = 1):
+        self.amount = 1
+        self.last = 0
 
+    def __call__(self, new, reserve, invested):
+        diff = new - self.last
+        if diff > 0:
+            #buy
+            self.last = new
+            return self.amount
+        if diff < 0:
+            #sell
+            self.last = new
+            return -1*self.amount
+        return 0
 
+class decorrelation_time_copy_last(strategy_base):
+    #if decorrelation time of diffs over a specified window is greater than a threshold, apply copy_last
+    def __init__(self, amount = 1, decor_time_thresh = 5, window = 40):
+        self.amount = amount
+        self.last = 0
+        self.decor_time_thresh = decor_time_thresh
+        self.window = window
+        self.diffs = []
+        
+    def __call__(self, new, reserve, invested):
+        if self.last == 0:
+            self.last = new
+        diff = new - self.last
+        self.diffs.append(diff)
+        if len(self.diffs) > self.window:
+            self.diffs.pop(0)
+            decorrelation_time = 1
+            while np.sum(np.array(self.diffs[decorrelation_time:]) * np.array(self.diffs[:-decorrelation_time])) > 0:
+                decorrelation_time += 1
+                if (decorrelation_time > self.decor_time_thresh):
+                    #buy or sell
+                    self.last = new
+                    return self.amount if diff > 0 else -1*self.amount
+        return 0
+class copy_last_all_in(strategy_base):
+    #trades based on the last diff (if it was positive, buy, if it was negative, sell)
+    def __init__(self):
+        self.last = 0
+
+    def __call__(self, new, reserve, invested):
+        if self.last == 0:
+            self.last = new
+        diff = new - self.last
+        if diff > 0:
+            #buy
+            self.last = new
+            return reserve
+        if diff < 0:
+            #sell
+            self.last = new
+            return -1*invested
+        return 0
+    
+class decorrelation_time_copy_last_all_in(strategy_base):
+    #if decorrelation time of diffs over a specified window is greater than a threshold, apply copy_last_all_in
+    def __init__(self, decor_time_thresh = 5, window = 40):
+        self.last = 0
+        self.decor_time_thresh = decor_time_thresh
+        self.window = window
+        self.diffs = []
+        
+    def __call__(self, new, reserve, invested):
+        if self.last == 0:
+            self.last = new
+        diff = new - self.last
+        self.diffs.append(diff)
+        if len(self.diffs) > self.window:
+            self.diffs.pop(0)
+            decorrelation_time = 1
+            while np.sum(np.array(self.diffs[decorrelation_time:]) * np.array(self.diffs[:-decorrelation_time])) > 0:
+                decorrelation_time += 1
+                if (decorrelation_time > self.decor_time_thresh):
+                    #buy or sell
+                    self.last = new
+                    return reserve if diff > 0 else -1*invested
+        return 0
+    
+class ema_slope(strategy_base):
+    #makes a trade based on the slope of the ema
+    def __init__(self, beta = 0.1):
+        self.avg = 0
+        self.last_avg = 0
+        self.beta = beta
+        
+    def __call__(self, new, reserve, invested):
+        self.avg = exponential_moving_average(new, self.avg, self.beta)
+        ema_diff = self.avg - self.last_avg
+        self.last_avg = self.avg
+        return ema_diff
+
+class ema_accel(strategy_base):
+    #makes a trade based on the second derivitive of the ema
+    def __init__(self, beta = 0.1, factor = 1):
+        self.avg = 0
+        self.last_avg = 0
+        self.beta = beta
+        self.last_diff = 0  
+        self.factor = factor
+        
+    def __call__(self, new, reserve, invested):
+        self.avg = exponential_moving_average(new, self.avg, self.beta)
+        ema_diff = self.avg - self.last_avg
+        self.last_avg = self.avg
+        trade = ema_diff - self.last_diff
+        self.last_diff = ema_diff
+        return trade * self.factor
+    
+class dynamic_ema_slope(strategy_base):
+    #makes the beta param based on the moving variance of the ema
+    def __init__(self, beta_factor = 0.1):
+        self.avg = 0
+        self.sum_of_squares_short = 0
+        self.sum_of_squares_long = 0
+        self.last_avg = 0
+        self.beta_factor = beta_factor
+        
+    def __call__(self, new, reserve, invested):
+        if self.avg==0:
+            self.avg = new
+        self.sum_of_squares_short = exponential_moving_average((new-self.avg)**2, self.sum_of_squares_short, .3)
+        self.sum_of_squares_long = exponential_moving_average((new-self.avg)**2, self.sum_of_squares_long, .01)
+        sos_norm = self.sum_of_squares_short / self.sum_of_squares_long
+        std = np.sqrt(sos_norm)
+        if std == 0 or np.isnan(std) or std>1:
+            std = 1
+        self.avg = exponential_moving_average(new, self.avg, self.beta_factor * std)
+        if np.isnan(self.avg):
+            self.avg = new
+        ema_diff = self.avg - self.last_avg
+        self.last_avg = self.avg
+        return ema_diff          
+        
+class ema_slope_reversal(strategy_base):
+    # buy when slope of ema changes from negative to positive, sell when it changes from positive to negative
+    def __init__(self, beta = 0.1):
+        self.avg = 0
+        self.last_avg = 0
+        self.beta = beta
+        self.last_diff = 0
+        
+    def __call__(self, new, reserve, invested):
+        self.avg = exponential_moving_average(new, self.avg, self.beta)
+        ema_diff = self.avg - self.last_avg
+        self.last_avg = self.avg
+        trade = 0
+        if ema_diff > 0 and self.last_diff < 0:
+            trade = reserve
+        elif ema_diff < 0 and self.last_diff > 0:
+            trade = -1*invested
+        self.last_diff = ema_diff
+        return trade
+        
+        
+    
+class threshold_buy_sell(strategy_base):
+    # buys/sells on any price movement greater than a given threshold in that direction
+    def __init__(self, threshold_up = 0.05, trade_percent_up = 1, trade_amount_up = 10, threshold_down = 0.05, trade_percent_down = 1, trade_amount_down = 10):
+        self.threshold_up = threshold_up
+        self.trade_percent_up = trade_percent_up
+        self.trade_amount_up = trade_amount_up
+        self.threshold_down = threshold_down
+        self.trade_percent_down = trade_percent_down
+        self.trade_amount_down = trade_amount_down
+        self.last = 0
+        
+    def __call__(self, new, reserve, invested):
+        trade = 0
+        if (new - self.last) / self.last > self.threshold_up:
+            # if movement up, sell
+            trade = -1 * (self.trade_percent_up / 100 * invested + self.trade_amount_up)
+        if (new - self.last) / self.last < -1*self.threshold_down:
+            # if movement down, buy
+            trade = (self.trade_percent_down / 100 * reserve + self.trade_amount_down)
+        self.last = new
+        return trade
+    
 #### Simulator ####
 class trade_simulator:
-    def __init__(self, price_data, initial_invested = 100, initial_reserve = 100):
+    def __init__(self, price_data, initial_invested = 100, initial_reserve = 100, trade_cost = 0, trade_cost_percent = 0):
         self.price_data = price_data 
         self.last = None
         self.initial_invested = initial_invested
@@ -186,7 +433,9 @@ class trade_simulator:
         self.reserve_ot = [] #keeps track of how much capital is in reserve over time
         self.invested_ot = [] #keeps track of how much capital is invested over time
         self.baselines = [] #keeps track of how much initial capital is worth if left untouched
-    
+        self.trade_cost = trade_cost
+        self.trade_cost_percent = trade_cost_percent #cost that is a percent of the trade amount
+        
     def run(self, strategy):
         self.last = self.price_data.iloc[0]
         for i in range(len(self.price_data)):
@@ -200,15 +449,26 @@ class trade_simulator:
                 trade = -1*self.invested
             self.reserve -= trade
             self.invested += trade
+            if np.abs(trade) >= 0:
+                #apply costs
+                cost = np.abs(trade) * self.trade_cost_percent / 100 + self.trade_cost
+                if self.reserve > cost:
+                    self.reserve -= cost
+                else:
+                    self.invested -= cost
+            #check for zero balance
+            if self.reserve + self.invested <= 0:
+                print("Balance reached zero at iteration " + str(i))
+                break
             self.reserve_ot.append(self.reserve)
             self.invested_ot.append(self.invested)
             self.trades.append(trade)
-            self.baselines.append(self.initial_invested * price / self.price_data.iloc[0]  + self.initial_reserve)
+            self.baselines.append((self.initial_invested + self.initial_reserve) * price / self.price_data.iloc[0])
         #print results
         print("Reserve: " + str(self.reserve))
         print("Invested: " + str(self.invested))
         print("Total: " + str(self.reserve + self.invested))
-        print("Baseline: " + str(self.initial_invested * price / self.price_data.iloc[0]  + self.initial_reserve))
+        print("Baseline: " + str((self.initial_invested + self.initial_reserve) * price / self.price_data.iloc[0]))
         print("\n")
 
 

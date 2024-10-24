@@ -1,2 +1,4 @@
 pykrakenapi
 pandas
+numpy
+pytorch
