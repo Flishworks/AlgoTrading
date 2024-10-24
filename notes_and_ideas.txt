@@ -1,0 +1,45 @@
+Crypto  trading:
+
+to do:
+    - set up lambda to pull latest price, sends alerts, and eventually make trades
+        - alerts sent to slack channel?
+        - maybe refences a gsheet that can contain alert thresholds?
+    - set up a viewer that allows arbitrary files to be dropped in and plotted
+        - dynamic number of plots
+    - Make a spreadhseet to track crypto experiements
+
+- strategy ideas:
+    - use decorrelation time of some lookback window of the diff price, and if above a threshold apply copy last all-in strategy
+    - Utilize multiple scales of exponential moving averaging, like if price is avove 10 hour but below 3 hour sell.
+    - dca in out depending on ema trend
+
+- feature ideas: 
+    - slope of different lenght moving avgs
+    - moving variance
+    - day of week, hour of day, minute of hour 
+    - max, min, variance of different time horizons
+
+NN experiments: 
+    - find architecture that can predict (and generalize) features like max, min, variance of forcast horizon
+    - try combo of longer lookback with bigger steps and shorted lookback with smaller steps?
+    - add some feature extraction (like variance) and inject after conv layers
+    - predicting mean of target window
+    - ensemble method of multipl methods or multiple time horizons
+    - classify random walk from real data
+        what about random walk build from power distrubution, or empiracle distribution built from data itself
+    - classify if data is moving forward or bacward
+    - ass fractality: classify minute vs 15 minute vs 30 min etc given equivalent windows 
+    - try "encoding" timeseries by training autoencoder. Use this latent space as input to other models, even decision tree
+    - instead of using real data to train latent space, can we use random walk data in autoencoder?
+
+other ideas:
+    - qualitatively look at prioces after large movements vs steady state 
+    - models likely need to be designed to consider recent data more heavily. 
+        - What if the model had a layer weighting scheme, where earlier layers are more resistant to change
+        - could also maybe train and slowly lock offf earlier layers over time
+        - or just self supervise a model then lock off earlier layers?
+
+Models to test:
+- minirocket
+- timesnet
+- itransformer
