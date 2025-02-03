@@ -1,4 +1,18 @@
-pykrakenapi
+# pykrakenapi
 pandas
 numpy
-pytorch
+matplotlib
+mpl-finance
+ipykernel
+scypi
+scikit-learn
+# pytorch
+# backtesting
+openbb
+
+# for tulipy indicators
+tulipy
+
+#for pandas-ta indicators
+TA-Lib # also requires C library install. See https://pypi.org/project/ta-lib/
+pandas_ta

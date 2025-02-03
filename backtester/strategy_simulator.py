@@ -239,7 +239,7 @@ class avg_derivitive(strategy_base):
 class copy_last(strategy_base):
     #trades based on the last diff (if it was positive, buy, if it was negative, sell)
     def __init__(self, amount = 1):
-        self.amount = 1
+        self.amount = amount
         self.last = 0
 
     def __call__(self, new, reserve, invested):
@@ -254,6 +254,25 @@ class copy_last(strategy_base):
             return -1*self.amount
         return 0
 
+class copy_last_all_in(strategy_base):
+    #trades based on the last diff (if it was positive, buy, if it was negative, sell)
+    def __init__(self):
+        self.last = 0
+
+    def __call__(self, new, reserve, invested):
+        if self.last == 0:
+            self.last = new
+        diff = new - self.last
+        if diff > 0:
+            #buy
+            self.last = new
+            return reserve
+        if diff < 0:
+            #sell
+            self.last = new
+            return -1*invested
+        return 0
+    
 class decorrelation_time_copy_last(strategy_base):
     #if decorrelation time of diffs over a specified window is greater than a threshold, apply copy_last
     def __init__(self, amount = 1, decor_time_thresh = 5, window = 40):
@@ -278,25 +297,7 @@ class decorrelation_time_copy_last(strategy_base):
                     self.last = new
                     return self.amount if diff > 0 else -1*self.amount
         return 0
-class copy_last_all_in(strategy_base):
-    #trades based on the last diff (if it was positive, buy, if it was negative, sell)
-    def __init__(self):
-        self.last = 0
 
-    def __call__(self, new, reserve, invested):
-        if self.last == 0:
-            self.last = new
-        diff = new - self.last
-        if diff > 0:
-            #buy
-            self.last = new
-            return reserve
-        if diff < 0:
-            #sell
-            self.last = new
-            return -1*invested
-        return 0
-    
 class decorrelation_time_copy_last_all_in(strategy_base):
     #if decorrelation time of diffs over a specified window is greater than a threshold, apply copy_last_all_in
     def __init__(self, decor_time_thresh = 5, window = 40):
