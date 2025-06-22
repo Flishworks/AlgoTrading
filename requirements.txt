@@ -4,7 +4,7 @@ numpy
 matplotlib
 mpl-finance
 ipykernel
-scypi
+scipy
 scikit-learn
 # pytorch
 # backtesting

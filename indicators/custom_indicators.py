@@ -1,67 +1,76 @@
 import pandas as pd
 import numpy as np
 from openbb import obb
-import utils as ut
+import utils.ohlc_utils as ut
+from utils import local_data_interface as ldi
+from indicators.proto import Indicator
+from scipy import signal
 
-class Indicator():
+class ticker(Indicator):
     '''
-    This is an example Indicator class
-    An Indicator should append values to the passed in dataframe as new columns
-    any params used should be defined ans stored in the class __init__ method
-    this way the Indicator can be called multiple times with different params
+    Simply copys a key from the dataframe. Useful for building MetaIndicators.
     '''
-    def __init__(self):
-        pass
+    def __init__(self, key = 'close'):
+        self.key = key
         
     def calculate(self, df):
-        '''
-          Parameters
-            ----------
-            df : pandas.DataFrame
-                Dataframe with the OHLC data to be used for calculations
-
-            Returns
-            -------
-            Indicator_df : pandas.DataFrame
-                Dataframe of the Indicator values'''
-        raise NotImplementedError
-    
-    def get_default_label(self):
-        '''
-        returns the class name and any set params, and should be preferred as the column name of the 
-        Indicator_df if only a single Indicator is returned
-        params set to none or starting with _ are not included in this name
-        '''
-        params = [f'{key}={value}' for key, value in self.__dict__.items() if (not key.startswith('_') and not value is None)]
-        if len(params):
-            param_str = f'({",".join(params)})'
-        else:
-            param_str = '()'
-        return self.__class__.__name__ + param_str
-
+        indicator_df = pd.DataFrame(index=df.index)
+        indicator_df[self.get_default_label()] = df[self.key]
+        return indicator_df
 class SMA(Indicator):
     '''
     Simple Moving Average
     '''
-    def __init__(self, period = 20):
+    def __init__(self, period = 20, key='close'):
         self.period = period
+        self.key = key
         
     def calculate(self, df):
-        df[self.get_default_label()] = df['close'].rolling(self.period).mean()
-        return df
+        indicator_df = pd.DataFrame(index=df.index)
+        indicator_df[self.get_default_label()] = df[self.key].rolling(self.period).mean()
+        return indicator_df
     
 class EMA(Indicator):
     '''
     Exponential Moving Average
     '''
-    def __init__(self, period = 20):
+    def __init__(self, period = 20, key='close'):
         self.period = period
+        self.key = key
         
     def calculate(self, df):
-        df[self.get_default_label()] = df['close'].ewm(span=self.period, adjust=False).mean()
-        return df
+        indicator_df = pd.DataFrame(index=df.index)
+        indicator_df[self.get_default_label()] = df[self.key].ewm(span=self.period, adjust=False).mean()
+        return indicator_df
+
+class iirFilt(Indicator):
+    """
+    Applies an IIR filter to the input data. The filter is defined by the parameters passed to the constructor.
+    lc: low cutoff frequency, in relative terms (0.0 to 1.0)
+    hc: high cutoff frequency, in relative terms (0.0 to 1.0)
+    If both lc and hc are provided, a bandpass filter is applied. Otherwise, a highpass or lowpass filter is applied.
+    """
+    def __init__(self, lc = None, hc = None, order=3, key='close'):
+        self.lc = lc
+        self.hc = hc
+        self.order = order
+        self.key = key
+
+    def calculate(self, df):
+        sig = df[self.key].values
+        sos = None
+        if self.lc is not None and self.hc is not None:
+            sos = signal.butter(self.order, [self.lc, self.hc], btype='bandpass', output="sos")
+        elif self.lc is not None:
+            sos = signal.butter(self.order, self.lc, btype='highpass', output="sos")
+        elif self.hc is not None:
+            sos = signal.butter(self.order, self.hc, btype='lowpass', output="sos")
+        
+        indicator_df = pd.DataFrame(index=df.index)
+        indicator_df[self.get_default_label()] = signal.sosfiltfilt(sos, sig)
+        return indicator_df
     
-class Tears_Bottom(Indicator):
+class tears_bottom(Indicator):
     '''
     Tears Bottom
     '''
@@ -82,27 +91,54 @@ class Tears_Bottom(Indicator):
                     if current_close_price[i] > current_open_price[i]: # current candle green
                         if current_open_price[i] < last_close_price[i]: # opened below yesterdays close
                             output[i] = 1
-        return pd.DataFrame({self.get_default_label() : output})
+        return pd.DataFrame({self.get_default_label() : output}, index=df.index)
     
 
-class Normalized_Relative_Price(Indicator):
+class normalized_relative_price(Indicator):
     '''
     Normalized Relative Price
     Calculates the ratio of the stock price to the SP500 price, both normalized by the moving average
     '''
-
-
-    def __init__(self, relative_to = 'spy', length = 14, col='close'):
+    def __init__(self, relative_to = 'spy', period = 30, key='close'):
         self.relative_to = relative_to
-        self.length = length
-        self.col = col
+        self.period = period
+        self.key = key
     
     def calculate(self, df):
         interval = ut.infer_interval(df)
-        sp500_price = obb.equity.price.historical(symbol=self.relative_to, provider="yfinance", start_date=df.index[0], end_date=df.index[-1], interval='1d').to_df()[self.col]
-        sp500_normalized = sp500_price / sp500_price.rolling(self.length).mean()
-        current_stock_price = df[self.col]
-        current_normalized_stock_price = current_stock_price / current_stock_price.rolling(self.length).mean()
-        price_ratio = current_normalized_stock_price / sp500_normalized
-        return pd.DataFrame({self.get_default_label() : price_ratio})
+        relative_price = ldi.get_ticker(symbol=self.relative_to, start_date=df.index[0], end_date=df.index[-1], interval=interval)[self.key]
+        relative_normalized = (relative_price - relative_price.rolling(self.period).mean()) / relative_price.rolling(self.period).std() + 10 # offset to avoid division by zero
+        current_stock_price = df[self.key]
+        current_normalized_stock_price = (current_stock_price - current_stock_price.rolling(self.period).mean()) / current_stock_price.rolling(self.period).std() + 10 # offset to avoid division by zero
+        price_ratio = current_normalized_stock_price / relative_normalized
+        return pd.DataFrame({self.get_default_label() : price_ratio}, index=df.index)
     
+
+class percent_from_local_high(Indicator):
+    '''
+    Calculates the percentage from the local high over a period
+    '''
+    def __init__(self, period=100, key='close'):
+        self.period = period
+        self.key = key
+    
+    def calculate(self, df):
+        indicator_df = pd.DataFrame(index=df.index)
+        local_max = df['high'].rolling(self.period).max()
+        indicator_df[self.get_default_label()] = df[self.key] / local_max
+        return indicator_df
+    
+class percent_from_local_low(Indicator):
+    '''
+    Calculates the percentage from the local minimum over a period
+    '''
+    def __init__(self, period=100, key='close'):
+        self.period = period
+        self.key = key
+    
+    def calculate(self, df):
+        indicator_df = pd.DataFrame(index=df.index)
+        local_min = df['low'].rolling(self.period).min()
+        indicator_df[self.get_default_label()] = df[self.key] / local_min - 1
+        return indicator_df
+

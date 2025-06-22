@@ -36,15 +36,15 @@ def main_loop():
                 file = os.path.join(config.data_folder, symbol + '.csv')
                 try:
                     last_dt = get_last_line(file).split(',')[0]
-                    #if last line is today, skip
                     last_dt = datetime.strptime(last_dt, '%Y-%m-%d %H:%M:%S')
                     if last_dt.date() == datetime.now().date():
-                        continue
-                    last_dt = datetime.now().date() #if we had a last line, we assume we have already done the bulk call and now are on the current day
+                        continue #if last line is today, that means we already ran today. skip.
+                    last_dt = last_dt 
                 except:
+                    #if file is empty, set last_dt to 1980-01-01 to do a bulk call of as much data as possible
                     last_dt = '1980-01-01 00:00:00'
 
-                price_data = obb.equity.price.historical(symbol="mstr",  provider=config.provider, interval=config.ohlc_interval, start_date=last_dt).to_df()
+                price_data = obb.equity.price.historical(symbol=symbol,  provider=config.provider, interval=config.ohlc_interval, start_date=last_dt).to_df()
                 
                 # round open,high,low,close to 2 decimal places
                 price_data['open'] = price_data['open'].round(2)

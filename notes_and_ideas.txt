@@ -1,3 +1,10 @@
+for rpi server:
+    to check last line:
+        ssh in, cd to folder, then command: tail BTCUSD.csv
+    to copy files local:
+        from local powershell: 
+            scp -r pi@raspberry:~/Documents/AlgoTrading/data/scraped_OHLC D:\other_data\fin_data\crypto_OHLC_05-09-2025            
+
 Crypto  trading:
 
 to do:
