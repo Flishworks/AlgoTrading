@@ -1,2 +1,2 @@
-openbb_pat = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdXRoX3Rva2VuIjoiY3F3cXdxeWRVbDVtQUltNFNnNWlQM1JWTENUTVBsVENQMkp0Q1owcSIsImV4cCI6MTc2ODUyMjg2NH0.MpuG6MS65h6GhdqkPCj5BnuooZyyBMgGN3Dd_9E4_gY'
-fred_api_key = '1c2699569ffc90d5e29b66b312169a65'
+openbb_pat = ''
+fred_api_key = ''
